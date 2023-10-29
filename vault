@@ -1,0 +1,129 @@
+#! python3
+
+import argparse
+import hashlib
+import os
+
+ansi_blue = '\33[1;94m'
+ansi_white = '\33[1;97m'
+ansi_green = '\33[1;92m'
+ansi_red = '\33[1;91m'
+ansi_reset = '\33[0m'
+ansi_cyan = '\33[1;96m'
+ansi_back = '\33[A\33[2K\r'
+
+parser = argparse.ArgumentParser()
+parser.add_argument('path', type=str, default='.', help='path to entry container (folder)')
+args = parser.parse_args()
+
+
+def xor(a: bytes, b: bytes):
+    return bytes([a ^ b for a, b in zip(a, b)])
+
+
+def main():
+    print(f'{ansi_blue}<< Vault >>\nPrivate Storage{ansi_reset} [{os.path.abspath(args.path)}]')
+    while True:
+        try:
+            command = input('\n> ')
+            match command:
+                case 'help':
+                    print(f'{ansi_white}help{ansi_reset} - display this message')
+                    print(f'{ansi_white}list{ansi_reset} - list all entries')
+                    print(f'{ansi_white}get{ansi_reset} - get an entry')
+                    print(f'{ansi_white}put{ansi_reset} - put an entry')
+                    print(f'{ansi_white}del{ansi_reset} - delete an entry')
+                    print(f'{ansi_white}cls{ansi_reset} - clear the screen')
+                    print(f'{ansi_white}exit{ansi_reset} - exit the program')
+                case 'list':
+                    for entry in os.listdir(args.path):
+                        print(entry)
+                case 'get':
+                    path = f'{args.path}/{input(f"{ansi_cyan}File: {ansi_reset}")}'
+                    try:
+                        with open(path, 'rb') as file:
+                            data = file.read()
+                    except IOError:
+                        print(f'{ansi_red}File \'{os.path.abspath(path)}\' not found .{ansi_reset}')
+                        continue
+                    value = xor(data[64:],
+                                hashlib.sha512(data[:64] + input(f'{ansi_cyan}Password: {ansi_reset}')
+                                               .encode('utf-8', errors='ignore'),
+                                               usedforsecurity=True).digest())
+                    print(ansi_back, end='')
+                    if os.system(f'echo {value[1:1+value[0]].decode("utf-8", errors="ignore")} | clip') == 0:
+                        print(f'{ansi_green}Copied to clipboard.{ansi_reset}')
+                    else:
+                        print(f'{ansi_red}Failed to copy to clipboard.{ansi_reset}')
+                case 'put':
+                    entry = input(f'{ansi_cyan}File: {ansi_reset}')
+                    path = f'{args.path}/{entry}'
+                    if os.path.exists(path):
+                        override = False
+                        while True:
+                            mode = input(f'{ansi_cyan}Override [y/N]: {ansi_reset}')
+                            if len(mode) == 0:
+                                mode = 'N'
+                            if mode in {'y', 'Y', 'n', 'N'}:
+                                override = mode in {'y', 'Y'}
+                                break
+                            else:
+                                print(f'{ansi_red}Invalid input.{ansi_reset}')
+                        if not override:
+                            print('Aborted.')
+                            continue
+                    salt = os.urandom(64)
+                    value = input(f'{ansi_cyan}Value: {ansi_reset}').encode('utf-8', errors='ignore')
+                    if len(value) > 63:
+                        print(f'{ansi_back}{ansi_red}Value too long.{ansi_reset}')
+                        continue
+                    value = bytes([len(value)]) + value + os.urandom(63 - len(value))
+                    value = xor(value,
+                                hashlib.sha512(salt + input(f'{ansi_cyan}Password: {ansi_reset}')
+                                               .encode('utf-8', errors='ignore'),
+                                               usedforsecurity=True).digest())
+                    print(ansi_back + ansi_back, end='')
+                    try:
+                        with open(path, 'wb') as file:
+                            file.write(salt + value)
+                    except IOError:
+                        print(f'{ansi_red}File \'{entry}\' could not be written.{ansi_reset}')
+                        continue
+                    print(f'{ansi_green}Entry \'{entry}\' created.{ansi_reset}')
+                case 'del':
+                    entry = input(f'{ansi_cyan}File: {ansi_reset}')
+                    path = f'{args.path}/{entry}'
+                    confirm = False
+                    while True:
+                        mode = input(f'{ansi_cyan}Confirm [y/N]: {ansi_reset}')
+                        if len(mode) == 0:
+                            mode = 'N'
+                        if mode in {'y', 'Y', 'n', 'N'}:
+                            confirm = mode in {'y', 'Y'}
+                            break
+                        else:
+                            print(f'{ansi_red}Invalid input.{ansi_reset}')
+                    if not confirm:
+                        print('Aborted.')
+                        continue
+                    try:
+                        os.remove(path)
+                    except IOError:
+                        print(f'{ansi_red}File \'{os.path.abspath(path)}\' could not be deleted.{ansi_reset}')
+                        continue
+                    print(f'{ansi_green}Entry \'{entry}\' deleted.{ansi_reset}')
+                case 'exit':
+                    break
+                case 'cls':
+                    os.system('cls')
+                    main()
+                    break
+                case _:
+                    print('Unknown command, try \'help\' for more information.')
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f'{ansi_red}Error: {e}{ansi_reset}')
+
+
+main()
