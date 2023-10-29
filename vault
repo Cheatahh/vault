@@ -1,15 +1,17 @@
 #! python3
 
-import argparse
-import hashlib
 import os
+import argparse
+from time import sleep
+from hashlib import sha512
+from getpass import getpass
 
-ansi_blue = '\33[1;94m'
-ansi_white = '\33[1;97m'
-ansi_green = '\33[1;92m'
-ansi_red = '\33[1;91m'
 ansi_reset = '\33[0m'
+ansi_red = '\33[1;91m'
+ansi_blue = '\33[1;94m'
 ansi_cyan = '\33[1;96m'
+ansi_green = '\33[1;92m'
+ansi_white = '\33[1;97m'
 ansi_back = '\33[A\33[2K\r'
 
 parser = argparse.ArgumentParser()
@@ -19,6 +21,20 @@ args = parser.parse_args()
 
 def xor(a: bytes, b: bytes):
     return bytes([a ^ b for a, b in zip(a, b)])
+
+
+def clip(value: str):
+    success = False
+    try:
+        with open('~', 'w') as file:
+            file.write(value)
+        success = os.system(f'type ~ | clip') == 0
+        with open('~', 'w') as file:
+            file.write("****")
+        os.remove('~')
+    except IOError:
+        pass
+    return success
 
 
 def main():
@@ -39,27 +55,34 @@ def main():
                     for entry in os.listdir(args.path):
                         print(entry)
                 case 'get':
-                    path = f'{args.path}/{input(f"{ansi_cyan}File: {ansi_reset}")}'
+                    path = f'{args.path}/{input(f"{ansi_cyan}Key: {ansi_reset}")}'
                     try:
                         with open(path, 'rb') as file:
                             data = file.read()
                     except IOError:
-                        print(f'{ansi_red}File \'{os.path.abspath(path)}\' not found .{ansi_reset}')
+                        print(f'{ansi_red}Key \'{os.path.abspath(path)}\' not found .{ansi_reset}')
                         continue
                     value = xor(data[64:],
-                                hashlib.sha512(data[:64] + input(f'{ansi_cyan}Password: {ansi_reset}')
-                                               .encode('utf-8', errors='ignore'),
-                                               usedforsecurity=True).digest())
+                                sha512(data[:64] + getpass(f'{ansi_cyan}Password: {ansi_reset}')
+                                       .encode('utf-8', errors='ignore'),
+                                       usedforsecurity=True).digest())
                     print(ansi_back, end='')
-                    if os.system(f'echo {value[1:1 + value[0] & 127].decode("utf-8", errors="ignore")} | clip') == 0:
-                        print(f'{ansi_green}Copied to clipboard.{ansi_reset}')
+                    if clip(value[1:1 + value[0] & 127].decode("utf-8", errors="ignore")):
+                        seconds = 10
+                        while seconds > 0:
+                            if seconds != 10:
+                                print(ansi_back, end='')
+                            print(f'{ansi_green}Copied to clipboard. [{seconds}]{ansi_reset}')
+                            sleep(1)
+                            seconds -= 1
+                        print(ansi_back, end='')
+                        clip('****')
                     else:
                         print(f'{ansi_red}Failed to copy to clipboard.{ansi_reset}')
                 case 'put':
-                    entry = input(f'{ansi_cyan}File: {ansi_reset}')
+                    entry = input(f'{ansi_cyan}Key: {ansi_reset}')
                     path = f'{args.path}/{entry}'
                     if os.path.exists(path):
-                        override = False
                         while True:
                             mode = input(f'{ansi_cyan}Override [y/N]: {ansi_reset}')
                             if len(mode) == 0:
@@ -78,22 +101,27 @@ def main():
                         print(f'{ansi_back}{ansi_red}Value too long.{ansi_reset}')
                         continue
                     value = bytes([len(value) | (os.urandom(1)[0]) & 128]) + value + os.urandom(63 - len(value))
-                    value = xor(value,
-                                hashlib.sha512(salt + input(f'{ansi_cyan}Password: {ansi_reset}')
-                                               .encode('utf-8', errors='ignore'),
-                                               usedforsecurity=True).digest())
-                    print(ansi_back + ansi_back, end='')
+                    sha = sha512(salt + getpass(f'{ansi_cyan}Password: {ansi_reset}')
+                                 .encode('utf-8', errors='ignore'),
+                                 usedforsecurity=True).digest()
+                    sha2 = sha512(salt + getpass(f'{ansi_cyan}Confirm Password: {ansi_reset}')
+                                  .encode('utf-8', errors='ignore'),
+                                  usedforsecurity=True).digest()
+                    print(ansi_back + ansi_back + ansi_back, end='')
+                    if sha != sha2:
+                        print(f'{ansi_red}Passwords do not match.{ansi_reset}')
+                        continue
+                    value = xor(value, sha)
                     try:
                         with open(path, 'wb') as file:
                             file.write(salt + value)
                     except IOError:
-                        print(f'{ansi_red}File \'{entry}\' could not be written.{ansi_reset}')
+                        print(f'{ansi_red}Key \'{entry}\' could not be written.{ansi_reset}')
                         continue
                     print(f'{ansi_green}Entry \'{entry}\' created.{ansi_reset}')
                 case 'del':
-                    entry = input(f'{ansi_cyan}File: {ansi_reset}')
+                    entry = input(f'{ansi_cyan}Key: {ansi_reset}')
                     path = f'{args.path}/{entry}'
-                    confirm = False
                     while True:
                         mode = input(f'{ansi_cyan}Confirm [y/N]: {ansi_reset}')
                         if len(mode) == 0:
@@ -109,7 +137,7 @@ def main():
                     try:
                         os.remove(path)
                     except IOError:
-                        print(f'{ansi_red}File \'{os.path.abspath(path)}\' could not be deleted.{ansi_reset}')
+                        print(f'{ansi_red}Key \'{os.path.abspath(path)}\' could not be deleted.{ansi_reset}')
                         continue
                     print(f'{ansi_green}Entry \'{entry}\' deleted.{ansi_reset}')
                 case 'exit':
